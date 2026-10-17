@@ -189,6 +189,9 @@ python3 python3-jsonschema alsa-lib-devel libbpf-devel libxdp-devel elfutils-lib
     INSTALL_CMD="sudo dnf install -y"
     ;;
   none)
+    # No package manager to drive; the missing-tools report below names
+    # what to install by hand (on macOS the Xcode command line tools bring
+    # clang, git and python3; Homebrew brings cmake and ninja).
     PREREQ_PKGS=""
     INSTALL_CMD=""
     ;;
@@ -209,16 +212,19 @@ missing=""
 need_cmd() { command -v "$1" >/dev/null 2>&1 || missing="$missing $2"; }
 need_cmd cmake cmake
 need_cmd ninja ninja-build
-need_cmd pkg-config pkg-config
-need_cmd file file
 need_cmd python3 python3
 need_cmd git git
+# file(1) is what dpkg-shlibdeps and rpmbuild's dependency generators run.
 case "$PKG_FORMAT" in
   deb)
     need_cmd dpkg-deb dpkg-dev
     need_cmd dpkg-shlibdeps dpkg-dev
+    need_cmd file file
     ;;
-  rpm) need_cmd rpmbuild rpm-build ;;
+  rpm)
+    need_cmd rpmbuild rpm-build
+    need_cmd file file
+    ;;
 esac
 # clang is needed by every toolchain: the XDP filter in statusbar-core is
 # built with `clang -target bpf`.
@@ -228,8 +234,13 @@ if [ "$STATUSBAR_TOOLCHAIN" = gcc ]; then
   need_cmd g++ "g++/gcc-c++"
 fi
 # The Linux-only backends (ALSA audio, AF_XDP networking) are built only on
-# Linux, so their libraries are checked only there.
+# Linux, so their libraries are checked only there. pkg-config is how the
+# build (and this check) finds them; the build treats it as optional, so it
+# is required only where those libraries are.
 need_lib() { pkg-config --exists "$1" 2>/dev/null || missing="$missing $2"; }
+case "$HOST_PKGS" in
+  deb | rpm) need_cmd pkg-config pkg-config ;;
+esac
 case "$HOST_PKGS" in
   deb)
     need_lib alsa libasound2-dev
@@ -246,7 +257,13 @@ case "$HOST_PKGS" in
     need_lib zlib "zlib-devel/zlib-ng-compat-devel"
     ;;
 esac
-python3 -c 'import jsonschema' 2>/dev/null || missing="$missing python3-jsonschema"
+# jsonschema only feeds an avb ctest that skips when it is absent; required
+# on Linux for parity with the container image, optional elsewhere.
+case "$HOST_PKGS" in
+  deb | rpm)
+    python3 -c 'import jsonschema' 2>/dev/null || missing="$missing python3-jsonschema"
+    ;;
+esac
 if [ "$STATUSBAR_TOOLCHAIN" = clang ]; then
   # libc++ headers: the clang toolchain file builds with -stdlib=libc++.
   if ! printf '#include <vector>\nint main(){}\n' \
@@ -264,6 +281,9 @@ if [ -n "$missing" ]; then
     echo "       install them with:" >&2
     echo "         $INSTALL_CMD $PREREQ_PKGS" >&2
     echo "       or re-run with --install-prereqs." >&2
+  else
+    echo "       (macOS: xcode-select --install for clang, git and python3;" >&2
+    echo "        brew install cmake ninja for the rest)" >&2
   fi
   exit 1
 fi
