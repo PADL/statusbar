@@ -3,6 +3,9 @@ build-*/
 build/
 deb-output/
 deb-output-gcc/
+deb-output-local*/
+rpm-output-local*/
+tgz-output-local*/
 fuzz-output/
 .cache/
 .claude/settings.local.json

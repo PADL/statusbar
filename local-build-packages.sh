@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Build the statusbar packages natively on this machine, for this machine,
 # without a container: .deb files on a Debian-based host, .rpm files on a
-# Fedora/RHEL-based host.
+# Fedora/RHEL-based host, or plain .tar.gz archives (CPack's TGZ generator)
+# on any host, macOS included.
 #
 # Usage: ./local-build-packages.sh [--install-prereqs] [--clean] [<pkg> ...]
 #   (no package)       build every package
@@ -11,9 +12,19 @@
 #                      sudo dnf)
 #   --clean            discard the previous build trees and staging area
 #
-# local-build-debs.sh and local-build-rpms.sh are the same script with the
-# package format fixed; run bare, it picks the format from the host (dpkg or
-# rpm). Override with PKG_FORMAT=deb|rpm.
+# local-build-debs.sh, local-build-rpms.sh and local-build-tgz.sh are the same
+# script with the package format fixed; run bare, it picks the format from the
+# host (Linux with dpkg -> deb, Linux with rpm -> rpm, anything else -> tgz).
+# Override with PKG_FORMAT=deb|rpm|tgz.
+#
+# The tgz format needs no package tooling and no root: every package yields a
+# statusbar-<pkg>-<version>-<system>-runtime.tar.gz and a matching
+# -devel.tar.gz, root-relative archives (usr/local/...) of the same install
+# tree the deb and rpm packages carry, except that the Python modules land
+# under the prefix (usr/local/lib/python3/dist-packages) rather than in
+# Debian's /usr/lib/python3/dist-packages, which CPack's archive generators
+# cannot package. Archive names carry no package revision (there is no
+# package manager to out-version), so STATUSBAR_DEB_REVISION is ignored.
 #
 # This is the container-free twin of container-build.sh: the same packages,
 # in the same dependency order, configured and packaged the same way, but
@@ -32,14 +43,16 @@
 #   STATUSBAR_DEB_REVISION=<rev>    package revision shared by every package
 #                                   built in this run, used for the Debian
 #                                   revision and the RPM release alike
-#                                   (default: UTC timestamp)
+#                                   (default: UTC timestamp; unused by tgz)
 #   PKG_OUTPUT=<dir>                where the packages land (default
-#                                   deb-output-local[-gcc]/ or
-#                                   rpm-output-local[-gcc]/, separate from
+#                                   deb-output-local[-gcc]/,
+#                                   rpm-output-local[-gcc]/ or
+#                                   tgz-output-local[-gcc]/, separate from
 #                                   the container builds' deb-output/ because
 #                                   the file names are identical)
 #   BUILD_ROOT=<dir>                build trees and staging prefix (default
-#                                   build-debs[-gcc]/ or build-rpms[-gcc]/)
+#                                   build-debs[-gcc]/, build-rpms[-gcc]/ or
+#                                   build-tgz[-gcc]/)
 #   EXTRA_CMAKE_ARGS="..."          appended to every configure
 #
 # A package is rebuilt when its source tree is newer than its package file,
@@ -68,25 +81,29 @@ for arg in "$@"; do
 done
 
 # ---- package format -------------------------------------------------------
-if [ "$(uname -s)" != Linux ]; then
-  echo "error: this script builds packages natively and needs a Linux host." >&2
-  echo "       On other hosts use container-build.sh / container-build-cross.sh." >&2
-  exit 1
+FORMAT_CMAKE_ARGS=()
+# The host's native package family, if any: deb and rpm packages can only be
+# built on a Linux host of that family (and that is where the prerequisite
+# lists below apply); tgz works anywhere.
+HOST_PKGS=none
+if [ "$(uname -s)" = Linux ]; then
+  if command -v dpkg >/dev/null 2>&1; then
+    HOST_PKGS=deb
+  elif command -v rpm >/dev/null 2>&1; then
+    HOST_PKGS=rpm
+  fi
 fi
 if [ -z "${PKG_FORMAT:-}" ]; then
-  if command -v dpkg >/dev/null 2>&1; then
-    PKG_FORMAT=deb
-  elif command -v rpm >/dev/null 2>&1; then
-    PKG_FORMAT=rpm
-  else
-    echo "error: neither dpkg nor rpm found; cannot tell which package format to build." >&2
-    exit 1
-  fi
+  case "$HOST_PKGS" in
+    none) PKG_FORMAT=tgz ;;
+    *) PKG_FORMAT="$HOST_PKGS" ;;
+  esac
 fi
 case "$PKG_FORMAT" in
   deb)
-    command -v dpkg >/dev/null 2>&1 || {
-      echo "error: PKG_FORMAT=deb needs a Debian-based host (no dpkg found)" >&2
+    [ "$HOST_PKGS" = deb ] || {
+      echo "error: PKG_FORMAT=deb needs a Debian-based Linux host (no dpkg found)." >&2
+      echo "       Elsewhere use PKG_FORMAT=tgz, container-build.sh or container-build-cross.sh." >&2
       exit 1
     }
     CPACK_GEN=DEB
@@ -96,8 +113,9 @@ case "$PKG_FORMAT" in
     BUILD_NAME=build-debs
     ;;
   rpm)
-    command -v rpm >/dev/null 2>&1 || {
-      echo "error: PKG_FORMAT=rpm needs an RPM-based host (no rpm found)" >&2
+    [ "$HOST_PKGS" = rpm ] || {
+      echo "error: PKG_FORMAT=rpm needs an RPM-based Linux host (no rpm found)." >&2
+      echo "       Elsewhere use PKG_FORMAT=tgz, container-build.sh or container-build-cross.sh." >&2
       exit 1
     }
     CPACK_GEN=RPM
@@ -106,8 +124,19 @@ case "$PKG_FORMAT" in
     OUT_NAME=rpm-output-local
     BUILD_NAME=build-rpms
     ;;
+  tgz)
+    CPACK_GEN=TGZ
+    RELEASE_VAR=""
+    PKG_EXT=tar.gz
+    OUT_NAME=tgz-output-local
+    BUILD_NAME=build-tgz
+    # CPack's archive generators cannot package an absolute install
+    # destination, so the Python modules (crypto, avb) go under the prefix
+    # instead of Debian's /usr/lib/python3/dist-packages.
+    FORMAT_CMAKE_ARGS=(-DSTATUSBAR_PYTHON_DIST_PACKAGES=lib/python3/dist-packages)
+    ;;
   *)
-    echo "error: PKG_FORMAT must be 'deb' or 'rpm'" >&2
+    echo "error: PKG_FORMAT must be 'deb', 'rpm' or 'tgz'" >&2
     exit 1
     ;;
 esac
@@ -137,7 +166,8 @@ TOOLCHAIN_FILE="$ROOT/core/cmake/toolchain-$STATUSBAR_TOOLCHAIN.cmake"
 # ---- prerequisites --------------------------------------------------------
 # The same set the builder image (core/Containerfile) installs, so a native
 # build sees what the container build sees; named per distribution family.
-case "$PKG_FORMAT" in
+# A host without one (macOS, say) builds tgz only and brings its own tools.
+case "$HOST_PKGS" in
   deb)
     PREREQ_PKGS="clang clang-tools lld libc++-dev libc++abi-dev libclang-rt-dev \
 cmake ninja-build ccache pkg-config dpkg-dev file ca-certificates git \
@@ -158,9 +188,18 @@ python3 python3-jsonschema alsa-lib-devel libbpf-devel libxdp-devel elfutils-lib
     [ "$STATUSBAR_TOOLCHAIN" = gcc ] && PREREQ_PKGS="$PREREQ_PKGS gcc-c++"
     INSTALL_CMD="sudo dnf install -y"
     ;;
+  none)
+    PREREQ_PKGS=""
+    INSTALL_CMD=""
+    ;;
 esac
 
 if [ "$INSTALL_PREREQS" -eq 1 ]; then
+  if [ -z "$INSTALL_CMD" ]; then
+    echo "error: --install-prereqs knows only apt-get and dnf; install the" >&2
+    echo "       prerequisites yourself on this host (see the list below)." >&2
+    exit 1
+  fi
   echo "=== installing build prerequisites ($INSTALL_CMD) ==="
   # shellcheck disable=SC2086
   $INSTALL_CMD $PREREQ_PKGS
@@ -188,8 +227,10 @@ need_cmd clang++ clang
 if [ "$STATUSBAR_TOOLCHAIN" = gcc ]; then
   need_cmd g++ "g++/gcc-c++"
 fi
+# The Linux-only backends (ALSA audio, AF_XDP networking) are built only on
+# Linux, so their libraries are checked only there.
 need_lib() { pkg-config --exists "$1" 2>/dev/null || missing="$missing $2"; }
-case "$PKG_FORMAT" in
+case "$HOST_PKGS" in
   deb)
     need_lib alsa libasound2-dev
     need_lib libbpf libbpf-dev
@@ -210,17 +251,20 @@ if [ "$STATUSBAR_TOOLCHAIN" = clang ]; then
   # libc++ headers: the clang toolchain file builds with -stdlib=libc++.
   if ! printf '#include <vector>\nint main(){}\n' \
        | clang++ -stdlib=libc++ -x c++ -fsyntax-only - >/dev/null 2>&1; then
-    case "$PKG_FORMAT" in
+    case "$HOST_PKGS" in
       deb) missing="$missing libc++-dev libc++abi-dev" ;;
       rpm) missing="$missing libcxx-devel libcxxabi-devel" ;;
+      none) missing="$missing libc++" ;;
     esac
   fi
 fi
 if [ -n "$missing" ]; then
   echo "error: missing build prerequisites:$missing" >&2
-  echo "       install them with:" >&2
-  echo "         $INSTALL_CMD $PREREQ_PKGS" >&2
-  echo "       or re-run with --install-prereqs." >&2
+  if [ -n "$INSTALL_CMD" ]; then
+    echo "       install them with:" >&2
+    echo "         $INSTALL_CMD $PREREQ_PKGS" >&2
+    echo "       or re-run with --install-prereqs." >&2
+  fi
   exit 1
 fi
 if [ ! -f "$TOOLCHAIN_FILE" ]; then
@@ -239,6 +283,10 @@ EXTRA=""
 for _cb in "$ROOT"/*/scripts/container-build.sh; do
   [ -e "$_cb" ] || continue
   _p="$(basename "$(dirname "$(dirname "$_cb")")")"
+  # A tree that packages with its own debhelper build (linuxptp4avb) joins
+  # the container build through that script, but has no CMakeLists.txt to
+  # configure or cpack here.
+  [ -f "$ROOT/$_p/CMakeLists.txt" ] || continue
   has "$TOPO" "$_p" || EXTRA="$EXTRA $_p"
 done
 TOPO="$TOPO$EXTRA"
@@ -266,7 +314,7 @@ WANT=""
 if [ "${#ARGS[@]}" -eq 0 ]; then
   WANT=" $TOPO "
 else
-  for arg in "${ARGS[@]}"; do
+  for arg in ${ARGS[@]+"${ARGS[@]}"}; do
     p="${arg#statusbar-}"
     if ! has "$TOPO" "$p"; then
       echo "error: unknown package '$arg' (known:$TOPO)" >&2
@@ -288,6 +336,8 @@ pkg_files() {
   case "$PKG_FORMAT" in
     deb) ls -1 "$PKG_OUTPUT"/statusbar-"$1"_*.deb "$PKG_OUTPUT"/statusbar-"$1"-*_*.deb 2>/dev/null || true ;;
     rpm) ls -1 "$PKG_OUTPUT"/statusbar-"$1"-[0-9]*.rpm "$PKG_OUTPUT"/statusbar-"$1"-*-[0-9]*.rpm 2>/dev/null || true ;;
+    # statusbar-<pkg>-<version>-<system>-{runtime,devel}.tar.gz
+    tgz) ls -1 "$PKG_OUTPUT"/statusbar-"$1"-[0-9]*.tar.gz 2>/dev/null || true ;;
   esac
 }
 
@@ -302,8 +352,13 @@ src_newer() {
 }
 
 # One revision for the whole run so every package rebuilt now carries the
-# same strictly-increasing version and a redeploy always upgrades.
+# same strictly-increasing version and a redeploy always upgrades. Only the
+# deb and rpm generators have a revision field; tgz names carry none.
 export STATUSBAR_DEB_REVISION="${STATUSBAR_DEB_REVISION:-$(date -u +%Y%m%d%H%M%S)}"
+RELEASE_ARGS=()
+if [ -n "$RELEASE_VAR" ]; then
+  RELEASE_ARGS=(-D "$RELEASE_VAR=$STATUSBAR_DEB_REVISION")
+fi
 
 # ccache when available, as in the container.
 CCACHE_ARGS=()
@@ -355,17 +410,22 @@ build_pkg() {
     -DCMAKE_PREFIX_PATH="$STAGE$PREFIX" \
     -DENABLE_FUZZING=OFF \
     -DENABLE_STATIC_CXX_RUNTIME="$STATUSBAR_STATIC_CXX" \
-    "${CCACHE_ARGS[@]}" \
-    "${version_args[@]}" \
+    ${FORMAT_CMAKE_ARGS[@]+"${FORMAT_CMAKE_ARGS[@]}"} \
+    ${CCACHE_ARGS[@]+"${CCACHE_ARGS[@]}"} \
+    ${version_args[@]+"${version_args[@]}"} \
     ${EXTRA_CMAKE_ARGS:-}
 
   echo "=== statusbar-$pkg: build ==="
   cmake --build "$build"
 
-  echo "=== statusbar-$pkg: package ($CPACK_GEN, revision $STATUSBAR_DEB_REVISION) ==="
+  if [ -n "$RELEASE_VAR" ]; then
+    echo "=== statusbar-$pkg: package ($CPACK_GEN, revision $STATUSBAR_DEB_REVISION) ==="
+  else
+    echo "=== statusbar-$pkg: package ($CPACK_GEN) ==="
+  fi
   rm -f "$build"/*."$PKG_EXT"
   cpack -G "$CPACK_GEN" --config "$build/CPackConfig.cmake" -B "$build" \
-    -D "$RELEASE_VAR=$STATUSBAR_DEB_REVISION"
+    ${RELEASE_ARGS[@]+"${RELEASE_ARGS[@]}"}
   local old
   for old in $(pkg_files "$pkg"); do
     rm -f "$old"
@@ -382,10 +442,13 @@ build_pkg() {
 case "$PKG_FORMAT" in
   deb) _arch="$(dpkg --print-architecture)" ;;
   rpm) _arch="$(rpm --eval '%{_arch}')" ;;
+  tgz) _arch="$(uname -s)-$(uname -m)" ;;
 esac
 echo "=== native $PKG_EXT build: toolchain $STATUSBAR_TOOLCHAIN, arch $_arch ==="
 echo "=== output: $PKG_OUTPUT   build trees: $BUILD_ROOT ==="
-echo "=== revision for this run: $STATUSBAR_DEB_REVISION ==="
+if [ -n "$RELEASE_VAR" ]; then
+  echo "=== revision for this run: $STATUSBAR_DEB_REVISION ==="
+fi
 
 REBUILT=""
 count=0
