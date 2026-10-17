@@ -82,6 +82,7 @@ done
 
 # ---- package format -------------------------------------------------------
 FORMAT_CMAKE_ARGS=()
+FORMAT_CPACK_ARGS=()
 # The host's native package family, if any: deb and rpm packages can only be
 # built on a Linux host of that family (and that is where the prerequisite
 # lists below apply); tgz works anywhere.
@@ -134,6 +135,11 @@ case "$PKG_FORMAT" in
     # destination, so the Python modules (crypto, avb) go under the prefix
     # instead of Debian's /usr/lib/python3/dist-packages.
     FORMAT_CMAKE_ARGS=(-DSTATUSBAR_PYTHON_DIST_PACKAGES=lib/python3/dist-packages)
+    # ... and should a tree still carry one (a package checked out before
+    # that change), fail at the first such file rather than let the archive
+    # generator write it to the live filesystem: this script never installs
+    # outside its own build tree and never needs root.
+    FORMAT_CPACK_ARGS=(-D CPACK_ERROR_ON_ABSOLUTE_INSTALL_DESTINATION=ON)
     ;;
   *)
     echo "error: PKG_FORMAT must be 'deb', 'rpm' or 'tgz'" >&2
@@ -311,6 +317,30 @@ for _cb in "$ROOT"/*/scripts/container-build.sh; do
 done
 TOPO="$TOPO$EXTRA"
 
+# A plain `git pull` moves the umbrella's gitlinks but leaves the submodule
+# trees where they were, so a package can quietly build from an older commit
+# than the umbrella records (one that, say, still installs outside the
+# prefix). Point that out; an uninitialised submodule cannot build at all.
+if git -C "$ROOT" rev-parse --git-dir >/dev/null 2>&1; then
+  _stale=""
+  while read -r _flag_sha _path _rest; do
+    has "$TOPO" "$_path" || continue
+    case "${_flag_sha:0:1}" in
+      -)
+        echo "error: submodule $_path is not checked out; run:" >&2
+        echo "         git -C $ROOT submodule update --init $_path" >&2
+        exit 1
+        ;;
+      +) _stale="$_stale $_path" ;;
+    esac
+  done < <(git -C "$ROOT" submodule status 2>/dev/null)
+  if [ -n "$_stale" ]; then
+    echo "warning: submodule(s)$_stale are not at the commit the umbrella records;" >&2
+    echo "         building what is checked out. To sync them:" >&2
+    echo "         git -C $ROOT submodule update$_stale" >&2
+  fi
+fi
+
 tdeps() {
   case "$1" in
     core) echo "" ;;
@@ -444,8 +474,19 @@ build_pkg() {
     echo "=== statusbar-$pkg: package ($CPACK_GEN) ==="
   fi
   rm -f "$build"/*."$PKG_EXT"
-  cpack -G "$CPACK_GEN" --config "$build/CPackConfig.cmake" -B "$build" \
-    ${RELEASE_ARGS[@]+"${RELEASE_ARGS[@]}"}
+  if ! cpack -G "$CPACK_GEN" --config "$build/CPackConfig.cmake" -B "$build" \
+       ${RELEASE_ARGS[@]+"${RELEASE_ARGS[@]}"} \
+       ${FORMAT_CPACK_ARGS[@]+"${FORMAT_CPACK_ARGS[@]}"}; then
+    echo "error: cpack failed for statusbar-$pkg" >&2
+    if [ "$PKG_FORMAT" = tgz ]; then
+      echo "       'ABSOLUTE path INSTALL DESTINATION forbidden' means this package tree" >&2
+      echo "       still installs outside the prefix (it predates the" >&2
+      echo "       STATUSBAR_PYTHON_DIST_PACKAGES change); nothing was written there." >&2
+      echo "       Bring it to the commit the umbrella records:" >&2
+      echo "         git -C $ROOT submodule update --init $pkg" >&2
+    fi
+    exit 1
+  fi
   local old
   for old in $(pkg_files "$pkg"); do
     rm -f "$old"
