@@ -25,3 +25,6 @@
 [submodule "aes70"]
 	path = aes70
 	url = https://github.com/PADL/statusbar-aes70.git
+[submodule "mediabridge"]
+	path = mediabridge
+	url = https://github.com/PADL/statusbar-mediabridge.git
