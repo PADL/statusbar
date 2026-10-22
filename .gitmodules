@@ -22,3 +22,6 @@
 [submodule "aes67"]
 	path = aes67
 	url = https://github.com/PADL/statusbar-aes67.git
+[submodule "aes70"]
+	path = aes70
+	url = https://github.com/PADL/statusbar-aes70.git
