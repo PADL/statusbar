@@ -149,6 +149,9 @@ esac
 
 # ---- toolchain and output locations ---------------------------------------
 STATUSBAR_TOOLCHAIN="${STATUSBAR_TOOLCHAIN:-clang}"
+# Set by the caller, it applies to every package; otherwise a package's
+# STATIC_CXX= line (pkg_static_cxx) wins over the toolchain's default.
+_caller_static_cxx="${STATUSBAR_STATIC_CXX:-}"
 case "$STATUSBAR_TOOLCHAIN" in
   clang) STATUSBAR_STATIC_CXX="${STATUSBAR_STATIC_CXX:-OFF}" ;;
   gcc) STATUSBAR_STATIC_CXX="${STATUSBAR_STATIC_CXX:-ON}" ;;
@@ -416,26 +419,56 @@ if command -v ccache >/dev/null 2>&1; then
   CCACHE_ARGS=(-DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache)
 fi
 
+# The install prefix of statusbar-<pkg>: $PREFIX, unless its
+# scripts/container-build.sh names another with an INSTALL_PREFIX= line (a
+# site package that installs under /usr beside its systemd units).
+pkg_prefix() {
+  local p=""
+  case "$1" in
+    core | crypto | audio | avb) ;;
+    *) p="$(sed -n 's/^INSTALL_PREFIX="\(.*\)"$/\1/p' "$ROOT/$1/scripts/container-build.sh" 2>/dev/null)" ;;
+  esac
+  echo "${p:-$PREFIX}"
+}
+
+# Whether statusbar-<pkg> links the C++ runtime statically: the caller's
+# STATUSBAR_STATIC_CXX, else its scripts/container-build.sh STATIC_CXX= line, else
+# the toolchain's default.
+pkg_static_cxx() {
+  local v=""
+  if [ -z "$_caller_static_cxx" ]; then
+    case "$1" in
+      core | crypto | audio | avb) ;;
+      *) v="$(sed -n 's/^STATIC_CXX="\(.*\)"$/\1/p' "$ROOT/$1/scripts/container-build.sh" 2>/dev/null)" ;;
+    esac
+  fi
+  echo "${v:-$STATUSBAR_STATIC_CXX}"
+}
+
 # The staged CMake package config of statusbar-<pkg>, wherever this host's
 # GNUInstallDirs put it (lib/ on Debian, lib64/ on Fedora/RHEL); empty if the
 # package is not staged.
 staged_config() {
-  ls -d "$STAGE$PREFIX"/lib*/cmake/statusbar-"$1" 2>/dev/null | head -n1 || true
+  ls -d "$STAGE$(pkg_prefix "$1")"/lib*/cmake/statusbar-"$1" 2>/dev/null | head -n1 || true
 }
 
 # ---- one package ----------------------------------------------------------
 build_pkg() {
   local pkg="$1" tree="$ROOT/$1" build="$BUILD_ROOT/$1"
-  local upper version_args=()
+  local upper version_args=() prefix dep_prefixes="" d
+  prefix="$(pkg_prefix "$pkg")"
 
   # Dependencies must already be staged (built earlier in this run, or by a
   # previous run into the same BUILD_ROOT).
-  local d
   for d in $(tdeps "$pkg"); do
     if [ -z "$(staged_config "$d")" ]; then
       echo "error: dependency statusbar-$d is not staged in $STAGE; build it first" >&2
       exit 1
     fi
+    case ";$dep_prefixes;" in
+      *";$STAGE$(pkg_prefix "$d");"*) ;;
+      *) dep_prefixes="${dep_prefixes:+$dep_prefixes;}$STAGE$(pkg_prefix "$d")" ;;
+    esac
   done
 
   # Package version = the tree's newest release tag, for the packages that
@@ -456,10 +489,10 @@ build_pkg() {
   cmake -Wno-dev -S "$tree" -B "$build" -G Ninja \
     --toolchain "$TOOLCHAIN_FILE" \
     -DCMAKE_BUILD_TYPE=Release \
-    -DCMAKE_INSTALL_PREFIX="$PREFIX" \
-    -DCMAKE_PREFIX_PATH="$STAGE$PREFIX" \
+    -DCMAKE_INSTALL_PREFIX="$prefix" \
+    -DCMAKE_PREFIX_PATH="${dep_prefixes:-$STAGE$PREFIX}" \
     -DENABLE_FUZZING=OFF \
-    -DENABLE_STATIC_CXX_RUNTIME="$STATUSBAR_STATIC_CXX" \
+    -DENABLE_STATIC_CXX_RUNTIME="$(pkg_static_cxx "$pkg")" \
     ${FORMAT_CMAKE_ARGS[@]+"${FORMAT_CMAKE_ARGS[@]}"} \
     ${CCACHE_ARGS[@]+"${CCACHE_ARGS[@]}"} \
     ${version_args[@]+"${version_args[@]}"} \
@@ -496,7 +529,7 @@ build_pkg() {
   # Stage the install so the next packages' find_package(statusbar-<pkg>)
   # resolves to what was just built, as the container's package install does.
   echo "=== statusbar-$pkg: stage into $STAGE ==="
-  rm -rf "$STAGE$PREFIX"/lib*/cmake/statusbar-"$pkg"
+  rm -rf "$STAGE$prefix"/lib*/cmake/statusbar-"$pkg"
   DESTDIR="$STAGE" cmake --install "$build" >/dev/null
 }
 
