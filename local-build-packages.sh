@@ -54,6 +54,16 @@
 #                                   build-debs[-gcc]/, build-rpms[-gcc]/ or
 #                                   build-tgz[-gcc]/)
 #   EXTRA_CMAKE_ARGS="..."          appended to every configure
+#   STATUSBAR_TARGET_ARCH=arm64     cross-compile (deb or tgz) with
+#                                   core/cmake/toolchain-<toolchain>-aarch64.cmake;
+#                                   output and build trees get an -arm64
+#                                   suffix. Give the target's libraries as
+#                                   STATUSBAR_SYSROOT=<dir> (see
+#                                   core/docs/BUILD_SYSTEM.md) or install the
+#                                   :arm64 multiarch dev packages. With a
+#                                   sysroot, dpkg-shlibdeps cannot resolve the
+#                                   target's libraries, so a .deb carries only
+#                                   the dependencies its package declares.
 #
 # A package is rebuilt when its source tree is newer than its package file,
 # or when one of its dependencies was rebuilt during this run.
@@ -166,11 +176,33 @@ case "$STATUSBAR_TOOLCHAIN" in
   gcc) _suffix="-gcc" ;;
   *) _suffix="" ;;
 esac
+TARGET_ARCH="${STATUSBAR_TARGET_ARCH:-}"
+CROSS_CMAKE_ARGS=()
+CROSS_CPACK_ARGS=()
+case "$TARGET_ARCH" in
+  "") ;;
+  arm64)
+    [ "$PKG_FORMAT" != rpm ] || {
+      echo "error: STATUSBAR_TARGET_ARCH supports PKG_FORMAT=deb or tgz" >&2
+      exit 1
+    }
+    _suffix="$_suffix-arm64"
+    CROSS_CMAKE_ARGS=(-DCPACK_DEBIAN_PACKAGE_ARCHITECTURE=arm64)
+    if [ -n "${STATUSBAR_SYSROOT:-}" ]; then
+      export STATUSBAR_SYSROOT
+      CROSS_CPACK_ARGS=(-D CPACK_DEBIAN_PACKAGE_SHLIBDEPS=OFF)
+    fi
+    ;;
+  *)
+    echo "error: STATUSBAR_TARGET_ARCH must be empty (native) or 'arm64'" >&2
+    exit 1
+    ;;
+esac
 PKG_OUTPUT="${PKG_OUTPUT:-$ROOT/$OUT_NAME$_suffix}"
 BUILD_ROOT="${BUILD_ROOT:-$ROOT/$BUILD_NAME$_suffix}"
 STAGE="$BUILD_ROOT/stage"
 PREFIX=/usr/local
-TOOLCHAIN_FILE="$ROOT/core/cmake/toolchain-$STATUSBAR_TOOLCHAIN.cmake"
+TOOLCHAIN_FILE="$ROOT/core/cmake/toolchain-$STATUSBAR_TOOLCHAIN${TARGET_ARCH:+-aarch64}.cmake"
 
 # ---- prerequisites --------------------------------------------------------
 # The same set the builder image (core/Containerfile) installs, so a native
@@ -250,7 +282,9 @@ need_lib() { pkg-config --exists "$1" 2>/dev/null || missing="$missing $2"; }
 case "$HOST_PKGS" in
   deb | rpm) need_cmd pkg-config pkg-config ;;
 esac
-case "$HOST_PKGS" in
+# A cross build finds the target's libraries in its sysroot or multiarch tree.
+[ -z "$TARGET_ARCH" ] || HOST_LIBS=none
+case "${HOST_LIBS:-$HOST_PKGS}" in
   deb)
     need_lib alsa libasound2-dev
     need_lib libbpf libbpf-dev
@@ -273,7 +307,7 @@ case "$HOST_PKGS" in
     python3 -c 'import jsonschema' 2>/dev/null || missing="$missing python3-jsonschema"
     ;;
 esac
-if [ "$STATUSBAR_TOOLCHAIN" = clang ]; then
+if [ "$STATUSBAR_TOOLCHAIN" = clang ] && [ -z "$TARGET_ARCH" ]; then
   # libc++ headers: the clang toolchain file builds with -stdlib=libc++.
   if ! printf '#include <vector>\nint main(){}\n' \
        | clang++ -stdlib=libc++ -x c++ -fsyntax-only - >/dev/null 2>&1; then
@@ -496,6 +530,7 @@ build_pkg() {
     ${FORMAT_CMAKE_ARGS[@]+"${FORMAT_CMAKE_ARGS[@]}"} \
     ${CCACHE_ARGS[@]+"${CCACHE_ARGS[@]}"} \
     ${version_args[@]+"${version_args[@]}"} \
+    ${CROSS_CMAKE_ARGS[@]+"${CROSS_CMAKE_ARGS[@]}"} \
     ${EXTRA_CMAKE_ARGS:-}
 
   echo "=== statusbar-$pkg: build ==="
@@ -509,7 +544,8 @@ build_pkg() {
   rm -f "$build"/*."$PKG_EXT"
   if ! cpack -G "$CPACK_GEN" --config "$build/CPackConfig.cmake" -B "$build" \
        ${RELEASE_ARGS[@]+"${RELEASE_ARGS[@]}"} \
-       ${FORMAT_CPACK_ARGS[@]+"${FORMAT_CPACK_ARGS[@]}"}; then
+       ${FORMAT_CPACK_ARGS[@]+"${FORMAT_CPACK_ARGS[@]}"} \
+       ${CROSS_CPACK_ARGS[@]+"${CROSS_CPACK_ARGS[@]}"}; then
     echo "error: cpack failed for statusbar-$pkg" >&2
     if [ "$PKG_FORMAT" = tgz ]; then
       echo "       'ABSOLUTE path INSTALL DESTINATION forbidden' means this package tree" >&2
@@ -538,7 +574,8 @@ case "$PKG_FORMAT" in
   rpm) _arch="$(rpm --eval '%{_arch}')" ;;
   tgz) _arch="$(uname -s)-$(uname -m)" ;;
 esac
-echo "=== native $PKG_EXT build: toolchain $STATUSBAR_TOOLCHAIN, arch $_arch ==="
+[ -z "$TARGET_ARCH" ] || _arch="$TARGET_ARCH (cross)"
+echo "=== $PKG_EXT build: toolchain $STATUSBAR_TOOLCHAIN, arch $_arch ==="
 echo "=== output: $PKG_OUTPUT   build trees: $BUILD_ROOT ==="
 if [ -n "$RELEASE_VAR" ]; then
   echo "=== revision for this run: $STATUSBAR_DEB_REVISION ==="
