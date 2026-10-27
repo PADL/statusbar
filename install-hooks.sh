@@ -2,7 +2,7 @@
 # Copyright 2026 Jeff Koftinoff <jeff.koftinoff@statusbar.com>
 # SPDX-License-Identifier: MIT
 
-# Install the formatting pre-commit hook into the umbrella repo and every
+# Install the formatting and block size pre-commit hook into the umbrella repo and every
 # initialized submodule. The hook runs `sh reformat.sh --check` at the repo
 # root and refuses the commit if anything would be reformatted; repos without
 # a reformat.sh (rtkernel, linuxptp4avb) get the same hook, which no-ops.
@@ -29,6 +29,16 @@ if ! sh reformat.sh --check; then
     echo "" >&2
     echo "pre-commit: formatting check failed." >&2
     echo "Fix with 'sh reformat.sh', restage, and commit again." >&2
+    exit 1
+fi
+# Block size of the staged C++ (core/cmake/check-block-statements.sh), when the umbrella build has
+# the clang-tidy plugin; STATUSBAR_BUILD_DIR picks another build.
+umbrella=$(git rev-parse --show-superproject-working-tree 2>/dev/null)
+umbrella=${umbrella:-$(git rev-parse --show-toplevel)}
+check="$umbrella/core/cmake/check-block-statements.sh"
+build=${STATUSBAR_BUILD_DIR:-$umbrella/build}
+if [ -f "$check" ] && [ -d "$build" ] && ! sh "$check" "$build" --staged; then
+    echo "pre-commit: block size check failed." >&2
     exit 1
 fi
 EOF
