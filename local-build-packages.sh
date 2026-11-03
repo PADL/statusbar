@@ -65,8 +65,13 @@
 #                                   target's libraries, so a .deb carries only
 #                                   the dependencies its package declares.
 #
-# A package is rebuilt when its source tree is newer than its package file,
-# or when one of its dependencies was rebuilt during this run.
+# A package is rebuilt when its source differs from the source its package
+# files were built from, or when one of its dependencies was rebuilt during
+# this run. For a git tree the source is its committed tree at HEAD plus its
+# uncommitted changes and untracked files (build directories and ignored
+# files aside), recorded beside the packages in .source/; so checking out an
+# older commit, or a symlinked tree, is a change too. A tree outside git falls
+# back to file times: rebuilt when a file under it is newer than its package.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -428,12 +433,38 @@ pkg_files() {
   esac
 }
 
-# Stale if the package file is missing, or any source file is newer than it.
-src_newer() {
-  local pkg="$1" tree="$ROOT/$1" file
+# The source state of statusbar-<pkg>'s tree, one hash: the committed tree at
+# HEAD (of the tree's own directory, for a tree inside another repository),
+# the diff of the work tree against it, and every untracked file's name and
+# content. Nothing is written to the repository. Fails outside git.
+src_state() {
+  local tree="$ROOT/$1" head
+  local excludes=(':(exclude,glob)build/**' ':(exclude,glob)build-*/**')
+  head="$(git -C "$tree" rev-parse 'HEAD:./' 2>/dev/null)" || return 1
+  {
+    echo "$head"
+    git -C "$tree" diff --no-ext-diff --no-color --no-renames --binary HEAD -- . "${excludes[@]}"
+    git -C "$tree" ls-files -z --others --exclude-standard -- . "${excludes[@]}" | tr '\0' '\n'
+    git -C "$tree" ls-files -z --others --exclude-standard -- . "${excludes[@]}" \
+      | (cd "$tree" && xargs -0 git hash-object --)
+  } | git hash-object --stdin
+}
+
+# Where the source state statusbar-<pkg>'s packages were built from is kept.
+state_file() { echo "$PKG_OUTPUT/.source/statusbar-$1"; }
+
+# Stale if the package file is missing, or the source state $2 (src_state(),
+# empty outside git) is not the one recorded when it was built; outside git,
+# if any source file is newer than it. -H: a tree that is a symlink is followed.
+src_changed() {
+  local pkg="$1" state="$2" tree="$ROOT/$1" file
   file="$(pkg_files "$pkg" | head -n1)"
   [ -z "$file" ] && return 0
-  [ -n "$(find "$tree" -type f -newer "$file" \
+  if [ -n "$state" ]; then
+    [ "$state" != "$(cat "$(state_file "$pkg")" 2>/dev/null)" ]
+    return
+  fi
+  [ -n "$(find -H "$tree" -type f -newer "$file" \
             -not -path '*/build/*' -not -path '*/build-*/*' \
             -not -path '*/.git/*' -print -quit)" ]
 }
@@ -487,8 +518,10 @@ staged_config() {
 }
 
 # ---- one package ----------------------------------------------------------
+# Build statusbar-<pkg> from the source state $2 (src_state(), taken before the
+# build so a change made during it shows next time; empty outside git).
 build_pkg() {
-  local pkg="$1" tree="$ROOT/$1" build="$BUILD_ROOT/$1"
+  local pkg="$1" state="$2" tree="$ROOT/$1" build="$BUILD_ROOT/$1"
   local upper version_args=() prefix dep_prefixes="" d
   prefix="$(pkg_prefix "$pkg")"
 
@@ -561,6 +594,12 @@ build_pkg() {
     rm -f "$old"
   done
   cp -v "$build"/*."$PKG_EXT" "$PKG_OUTPUT"/
+  mkdir -p "$(dirname "$(state_file "$pkg")")"
+  if [ -n "$state" ]; then
+    echo "$state" > "$(state_file "$pkg")"
+  else
+    rm -f "$(state_file "$pkg")"
+  fi
 
   # Stage the install so the next packages' find_package(statusbar-<pkg>)
   # resolves to what was just built, as the container's package install does.
@@ -593,12 +632,13 @@ for pkg in $TOPO; do
   for d in $(tdeps "$pkg"); do
     if has "$REBUILT" "$d"; then stale=1; fi
   done
-  if [ "$stale" -eq 0 ] && ! src_newer "$pkg" \
+  state="$(src_state "$pkg" || true)"
+  if [ "$stale" -eq 0 ] && ! src_changed "$pkg" "$state" \
      && [ -n "$(staged_config "$pkg")" ]; then
     echo "$pkg: up to date"
     continue
   fi
-  build_pkg "$pkg"
+  build_pkg "$pkg" "$state"
   REBUILT="$REBUILT $pkg"
   count=$((count + 1))
 done
