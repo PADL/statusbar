@@ -31,13 +31,16 @@ if ! sh reformat.sh --check; then
     echo "Fix with 'sh reformat.sh', restage, and commit again." >&2
     exit 1
 fi
-# Block size of the staged C++ (core/cmake/check-block-statements.sh), when the umbrella build has
-# the clang-tidy plugin; STATUSBAR_BUILD_DIR picks another build.
+# Block size of the staged C++ (core/check-block-statements.sh) against a build's
+# clang-tidy plugin (--target statusbar-tidy-block-statements), found as the gate looks
+# for it or named by STATUSBAR_BUILD_DIR. Without one the gate says so and passes;
+# STATUSBAR_BLOCK_STATEMENTS_STRICT=1 makes that a failure.
 umbrella=$(git rev-parse --show-superproject-working-tree 2>/dev/null)
 umbrella=${umbrella:-$(git rev-parse --show-toplevel)}
-check="$umbrella/core/cmake/check-block-statements.sh"
-build=${STATUSBAR_BUILD_DIR:-$umbrella/build}
-if [ -f "$check" ] && [ -d "$build" ] && ! sh "$check" "$build" --staged; then
+check="$umbrella/core/check-block-statements.sh"
+if [ ! -f "$check" ]; then
+    echo "pre-commit: $check not found: block size not checked." >&2
+elif ! sh "$check" --staged; then
     echo "pre-commit: block size check failed." >&2
     exit 1
 fi
