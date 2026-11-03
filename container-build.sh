@@ -6,8 +6,10 @@
 #   <pkg> ...        build the named packages and their dependencies;
 #                    names may be given as 'core' or 'statusbar-core'
 #
-# A package's .deb is rebuilt when its source tree is newer than the .deb,
-# or when one of its dependencies was rebuilt during this run. Output is
+# A package's .deb is rebuilt when a file of its source tree (followed when
+# the tree is a symlink) is newer than the .deb, or when one of its
+# dependencies was rebuilt during this run. File times miss an older commit
+# checked out; local-build-packages.sh compares git source states instead. Output is
 # collected in deb-output/. Override the base image with DEBIAN_VERSION,
 # the container engine with CONTAINER_ENGINE, and the target architecture
 # with TARGET_PLATFORM (default linux/arm64; cross-arch needs qemu-user-static
@@ -106,12 +108,14 @@ else
 fi
 
 # Stale if the .deb is missing, or any source file is newer than it.
-# Extension packages may name their deb without the statusbar- prefix.
+# Extension packages may name their deb without the statusbar- prefix; a
+# library package may ship its -dev package alone (aes67, aes70).
 src_newer() {
   local pkg="$1" tree="$ROOT/$1" deb
-  deb="$(ls -1 "$DEB_OUTPUT"/statusbar-"$pkg"_*.deb "$DEB_OUTPUT"/"$pkg"_*.deb 2>/dev/null | head -n1 || true)"
+  deb="$(ls -1 "$DEB_OUTPUT"/statusbar-"$pkg"_*.deb "$DEB_OUTPUT"/statusbar-"$pkg"-dev_*.deb \
+            "$DEB_OUTPUT"/"$pkg"_*.deb 2>/dev/null | head -n1 || true)"
   [ -z "$deb" ] && return 0
-  [ -n "$(find "$tree" -type f -newer "$deb" \
+  [ -n "$(find -H "$tree" -type f -newer "$deb" \
             -not -path '*/build/*' -not -path '*/build-*/*' \
             -not -path '*/.git/*' -print -quit)" ]
 }
