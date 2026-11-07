@@ -148,8 +148,12 @@ if(STATUSBAR_TEST_FILES AND ENABLE_NO_EXCEPTIONS)
            "(the test harness requires exceptions)")
 endif()
 if(STATUSBAR_TEST_FILES AND NOT ENABLE_NO_EXCEPTIONS)
-  create_test_sourcelist(STATUSBAR_TEST_SOURCES statusbar_test.cpp
-                         ${STATUSBAR_TEST_FILES})
+  # With no arguments the binary runs every test (-A) instead of CMake's prompt
+  # for a test number, which waits on stdin (statusbar/test/test_driver.hpp).
+  create_test_sourcelist(
+    STATUSBAR_TEST_SOURCES statusbar_test.cpp ${STATUSBAR_TEST_FILES}
+    EXTRA_INCLUDE statusbar/test/test_driver.hpp
+    FUNCTION statusbar::test::run_all_without_arguments)
   add_executable(statusbar_test ${CMAKE_CURRENT_BINARY_DIR}/statusbar_test.cpp
                                 ${STATUSBAR_TEST_FILES_ABS})
   target_link_libraries(statusbar_test PRIVATE statusbar)
