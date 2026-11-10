@@ -53,19 +53,32 @@ export STATUSBAR_DEB_REVISION
 # Packages in dependency-first order.
 TOPO="core crypto audio avb"
 
-# Transitive dependencies of each package.
+# Membership test in a space-separated set (needed by the discovery below).
+has() { case " $1 " in *" $2 "*) return 0 ;; *) return 1 ;; esac ; }
+
+# Extension packages (aes67, aes70, mediabridge) join the build when they carry
+# their own scripts/container-build-cross.sh, as in ./container-build.sh. They
+# follow the exported set in directory order, so one may depend only on those
+# that sort before it (mediabridge on aes67 and aes70).
+EXTRA=""
+for _cb in "$ROOT"/*/scripts/container-build-cross.sh; do
+  [ -e "$_cb" ] || continue
+  _p="$(basename "$(dirname "$(dirname "$_cb")")")"
+  has "$TOPO" "$_p" || EXTRA="$EXTRA $_p"
+done
+TOPO="$TOPO$EXTRA"
+
+# Transitive dependencies of each package. Extension packages declare theirs
+# in their own container-build-cross.sh (the DEPS= line).
 tdeps() {
   case "$1" in
     core) echo "" ;;
     crypto) echo "core" ;;
     audio) echo "core" ;;
     avb) echo "core crypto audio" ;;
-    *) echo "" ;;
+    *) sed -n 's/^DEPS="\(.*\)"$/\1/p' "$ROOT/$1/scripts/container-build-cross.sh" 2>/dev/null ;;
   esac
 }
-
-# Membership test in a space-separated set.
-has() { case " $1 " in *" $2 "*) return 0 ;; *) return 1 ;; esac ; }
 
 mkdir -p "$DEB_OUTPUT"
 
@@ -84,10 +97,12 @@ else
 fi
 
 # Stale if the .deb (for this target arch) is missing, or any source file
-# is newer than it.
+# is newer than it. A library package may ship its -dev package alone (aes67,
+# aes70).
 src_newer() {
   local pkg="$1" tree="$ROOT/$1" deb
-  deb="$(ls -1 "$DEB_OUTPUT"/statusbar-"$pkg"_*_"$TARGET_ARCH".deb 2>/dev/null \
+  deb="$(ls -1 "$DEB_OUTPUT"/statusbar-"$pkg"_*_"$TARGET_ARCH".deb \
+            "$DEB_OUTPUT"/statusbar-"$pkg"-dev_*_"$TARGET_ARCH".deb 2>/dev/null \
          | head -n1 || true)"
   [ -z "$deb" ] && return 0
   [ -n "$(find "$tree" -type f -newer "$deb" \
