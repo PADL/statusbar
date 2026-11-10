@@ -57,7 +57,7 @@ Jeff's code in `core/statusbar/{status,buffer,net}` and `avb/statusbar/{atdecc,a
   with `// NOLINT(statusbar-block-statements): <reason>`. Early return, no `else` after `return`.
   Never scatter logic into tiny functions or pack lines to hit the number; 7-8 beats that.
   Enforced by core's `statusbar-block-statements` clang-tidy plugin and the pre-commit gate
-  (`core/cmake/check-block-statements.sh`; tests and fuzzers exempt).
+  (`core/check-block-statements.sh`; tests and fuzzers exempt).
 - Real-time threads never allocate, block, lock or log; cross-thread state goes through
   `itc` (`SeqlockValue`, `LatestPipe`, `MessagePipe`). Designs are event-driven: one
   initial fetch, then events; do not add polling or "snapshots".
