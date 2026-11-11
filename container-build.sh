@@ -108,12 +108,14 @@ else
 fi
 
 # Stale if the .deb is missing, or any source file is newer than it.
-# Extension packages may name their deb without the statusbar- prefix; a
-# library package may ship its -dev package alone (aes67, aes70).
+# Extension packages may name their deb without the statusbar- prefix, and
+# PADL's name theirs padl-<pkg>; a library package may ship its -dev package
+# alone (aes67, aes70).
 src_newer() {
   local pkg="$1" tree="$ROOT/$1" deb
   deb="$(ls -1 "$DEB_OUTPUT"/statusbar-"$pkg"_*.deb "$DEB_OUTPUT"/statusbar-"$pkg"-dev_*.deb \
-            "$DEB_OUTPUT"/"$pkg"_*.deb 2>/dev/null | head -n1 || true)"
+            "$DEB_OUTPUT"/"$pkg"_*.deb "$DEB_OUTPUT"/padl-"$pkg"_*.deb \
+            "$DEB_OUTPUT"/padl-"$pkg"-dev_*.deb 2>/dev/null | head -n1 || true)"
   [ -z "$deb" ] && return 0
   [ -n "$(find -H "$tree" -type f -newer "$deb" \
             -not -path '*/build/*' -not -path '*/build-*/*' \
