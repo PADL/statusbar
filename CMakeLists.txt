@@ -38,12 +38,12 @@ set_property(GLOBAL PROPERTY STATUSBAR_INSTALL_TARGETS "")
 # Discover every package directory up front: the four exported packages plus any
 # nested extension — a private tree dropped into the umbrella (NOT a submodule)
 # that looks like a statusbar package, i.e. a top-level CMakeLists.txt beside a
-# statusbar/ module directory. This one _packages list drives the find_package()
-# redirects, the add_subdirectory() calls and the aggregate header install
-# below, so no later block carries its own copy of the package set. Sorted for a
-# deterministic configure. The glob is evaluated at configure time only (no
-# CONFIGURE_DEPENDS): after dropping in or removing a nested package, re-run
-# cmake by hand.
+# statusbar/ or padl/ module directory. This one _packages list drives the
+# find_package() redirects, the add_subdirectory() calls and the aggregate
+# header install below, so no later block carries its own copy of the package
+# set. Sorted for a deterministic configure. The glob is evaluated at configure
+# time only (no CONFIGURE_DEPENDS): after dropping in or removing a nested
+# package, re-run cmake by hand.
 set(_packages core crypto audio avb)
 file(
   GLOB _extra_dirs
@@ -55,7 +55,8 @@ foreach(_d ${_extra_dirs})
     continue()
   endif()
   if(EXISTS "${CMAKE_SOURCE_DIR}/${_d}/CMakeLists.txt"
-     AND IS_DIRECTORY "${CMAKE_SOURCE_DIR}/${_d}/statusbar")
+     AND (IS_DIRECTORY "${CMAKE_SOURCE_DIR}/${_d}/statusbar"
+          OR IS_DIRECTORY "${CMAKE_SOURCE_DIR}/${_d}/padl"))
     list(APPEND _packages ${_d})
   endif()
 endforeach()
@@ -121,9 +122,14 @@ install(
 # entries were validated at discovery (and the exported four always have
 # statusbar/), so a missing directory should fail loudly, not skip.
 foreach(_pkg ${_packages})
+  # A package's header root: statusbar/ (Jeff's packages) or padl/ (PADL's).
+  set(_root statusbar)
+  if(IS_DIRECTORY "${CMAKE_SOURCE_DIR}/${_pkg}/padl")
+    set(_root padl)
+  endif()
   install(
-    DIRECTORY "${_pkg}/statusbar/"
-    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/statusbar
+    DIRECTORY "${_pkg}/${_root}/"
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/${_root}
     COMPONENT devel
     FILES_MATCHING
     PATTERN "*.hpp"
