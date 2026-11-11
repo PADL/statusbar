@@ -513,11 +513,18 @@ pkg_static_cxx() {
   echo "${v:-$STATUSBAR_STATIC_CXX}"
 }
 
-# The staged CMake package config of statusbar-<pkg>, wherever this host's
-# GNUInstallDirs put it (lib/ on Debian, lib64/ on Fedora/RHEL); empty if the
-# package is not staged.
+# The staged CMake package config directories of statusbar-<pkg>, wherever
+# this host's GNUInstallDirs put them (lib/ on Debian, lib64/ on Fedora/RHEL,
+# lib/<multiarch>/ under a /usr prefix on Debian); empty if not staged.
+staged_configs() {
+  local base
+  base="$STAGE$(pkg_prefix "$1")"
+  ls -d "$base"/lib*/cmake/statusbar-"$1" "$base"/lib/*/cmake/statusbar-"$1" 2>/dev/null || true
+}
+
+# The first staged CMake package config of statusbar-<pkg>; empty if not staged.
 staged_config() {
-  ls -d "$STAGE$(pkg_prefix "$1")"/lib*/cmake/statusbar-"$1" 2>/dev/null | head -n1 || true
+  staged_configs "$1" | head -n1
 }
 
 # ---- one package ----------------------------------------------------------
@@ -607,7 +614,10 @@ build_pkg() {
   # Stage the install so the next packages' find_package(statusbar-<pkg>)
   # resolves to what was just built, as the container's package install does.
   echo "=== statusbar-$pkg: stage into $STAGE ==="
-  rm -rf "$STAGE$prefix"/lib*/cmake/statusbar-"$pkg"
+  local staged
+  for staged in $(staged_configs "$pkg"); do
+    rm -rf "${staged:?}"
+  done
   DESTDIR="$STAGE" cmake --install "$build" >/dev/null
 }
 
