@@ -97,12 +97,15 @@ else
 fi
 
 # Stale if the .deb (for this target arch) is missing, or any source file
-# is newer than it. A library package may ship its -dev package alone (aes67,
+# is newer than it. PADL's packages name their debs padl-<pkg> (aes67, aes70,
+# mediabridge); a library package may ship its -dev package alone (aes67,
 # aes70).
 src_newer() {
   local pkg="$1" tree="$ROOT/$1" deb
   deb="$(ls -1 "$DEB_OUTPUT"/statusbar-"$pkg"_*_"$TARGET_ARCH".deb \
-            "$DEB_OUTPUT"/statusbar-"$pkg"-dev_*_"$TARGET_ARCH".deb 2>/dev/null \
+            "$DEB_OUTPUT"/statusbar-"$pkg"-dev_*_"$TARGET_ARCH".deb \
+            "$DEB_OUTPUT"/padl-"$pkg"_*_"$TARGET_ARCH".deb \
+            "$DEB_OUTPUT"/padl-"$pkg"-dev_*_"$TARGET_ARCH".deb 2>/dev/null \
          | head -n1 || true)"
   [ -z "$deb" ] && return 0
   [ -n "$(find "$tree" -type f -newer "$deb" \
