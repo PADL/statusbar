@@ -423,13 +423,16 @@ fi
 mkdir -p "$PKG_OUTPUT" "$STAGE"
 
 # Package files of statusbar-<pkg> (runtime, -dev/-devel and any extra
-# component) in the output directory.
+# component) in the output directory; PADL's packages are named padl-<pkg>
+# (aes67, aes70, mediabridge).
 pkg_files() {
   case "$PKG_FORMAT" in
-    deb) ls -1 "$PKG_OUTPUT"/statusbar-"$1"_*.deb "$PKG_OUTPUT"/statusbar-"$1"-*_*.deb 2>/dev/null || true ;;
-    rpm) ls -1 "$PKG_OUTPUT"/statusbar-"$1"-[0-9]*.rpm "$PKG_OUTPUT"/statusbar-"$1"-*-[0-9]*.rpm 2>/dev/null || true ;;
+    deb) ls -1 "$PKG_OUTPUT"/statusbar-"$1"_*.deb "$PKG_OUTPUT"/statusbar-"$1"-*_*.deb \
+           "$PKG_OUTPUT"/padl-"$1"_*.deb "$PKG_OUTPUT"/padl-"$1"-*_*.deb 2>/dev/null || true ;;
+    rpm) ls -1 "$PKG_OUTPUT"/statusbar-"$1"-[0-9]*.rpm "$PKG_OUTPUT"/statusbar-"$1"-*-[0-9]*.rpm \
+           "$PKG_OUTPUT"/padl-"$1"-[0-9]*.rpm "$PKG_OUTPUT"/padl-"$1"-*-[0-9]*.rpm 2>/dev/null || true ;;
     # statusbar-<pkg>-<version>-<system>-{runtime,devel}.tar.gz
-    tgz) ls -1 "$PKG_OUTPUT"/statusbar-"$1"-[0-9]*.tar.gz 2>/dev/null || true ;;
+    tgz) ls -1 "$PKG_OUTPUT"/statusbar-"$1"-[0-9]*.tar.gz "$PKG_OUTPUT"/padl-"$1"-[0-9]*.tar.gz 2>/dev/null || true ;;
   esac
 }
 
