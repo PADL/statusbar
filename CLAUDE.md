@@ -23,11 +23,15 @@ Jeff's code in `core/statusbar/{status,buffer,net}` and `avb/statusbar/{atdecc,a
 
 ## Layout and naming
 
-- One module per directory `statusbar/<module>/`; files `<module>_<topic>.hpp/.cpp`,
+- One module per directory `<root>/<module>/`; files `<module>_<topic>.hpp/.cpp`,
   tests `<module>_<topic>_test.cpp` beside the code, tools `<module>_<name>_tool.cpp`,
   fuzzers `*_fuzzer.cpp`, examples `*_example.cpp`. `<module>.hpp` is the umbrella
-  header consumers include. Includes are `"statusbar/<module>/<file>.hpp"`.
-- Namespace `statusbar::<module>`. Types `CamelCase`, functions/variables/members
+  header consumers include. Includes are `"<root>/<module>/<file>.hpp"`.
+- `<root>` is `statusbar` in Jeff's packages (`core`, `crypto`, `audio`, `avb`) and `padl`
+  in PADL's (`aes67`, `aes70`, `mediabridge`): directories `padl/<module>/`, includes
+  `"padl/<module>/…"`, `namespace padl::<module>`. PADL code names core and avb
+  explicitly (`statusbar::net::`, `statusbar::Status`); no `using namespace` or alias for it.
+- Namespace `<root>::<module>`. Types `CamelCase`, functions/variables/members
   `snake_case` (members `trailing_`), wire constants `UPPER_CASE`, `enum class`
   enumerators `snake_case`, concepts `CamelCase`. Tools install as `statusbar-<name>`
   (`statusbar_prefix_tool_names`; `STATUSBAR_UNPREFIXED` for operator-facing daemons).
@@ -42,7 +46,7 @@ Jeff's code in `core/statusbar/{status,buffer,net}` and `avb/statusbar/{atdecc,a
   `std::pmr` where a caller may supply memory.
 - Errors are values: `Status` / `StatusValue<T>` (`std::expected<_, std::error_code>`),
   `success()`, `failure(enum)`, `forward_failure(r)`; each module has `<module>_error.hpp`
-  with an `enum class XError`, a category named `statusbar.<module>`, and
+  with an `enum class XError`, a category named `<root>.<module>`, and
   `is_error_code_enum`. Library code never throws; `throw_or_abort` is the one boundary
   (the tree builds with `ENABLE_NO_EXCEPTIONS`). Builders are sticky-error and chained.
 - Signatures: trailing return types (`auto f() const noexcept -> T`), `[[nodiscard]]` on
@@ -84,14 +88,14 @@ Jeff's code in `core/statusbar/{status,buffer,net}` and `avb/statusbar/{atdecc,a
 ## Tests
 
 - The `test` module only: `TEST(group, name) { EXPECT_TRUE/FALSE/EQ/NE }` and a closing
-  `TEST_MAIN(<module>_<topic>, <file stem>)`; the file name must match. Groups are
+  `TEST_MAIN(<root>_<module>, <file stem>)`; the file name must match. Groups are
   `<module>_<thing>` or the type under test; names are snake_case statements of the
   behaviour (`a_refused_rate_change_is_undone`, `late_frames_are_dropped`), never
   `test1`. Tests are self-contained (no ordering, no network, no root); feed state
   machines crafted frames and fake clocks. Fuzzers for every parser. A test that
   needs root (veth + BPF) skips cleanly when unprivileged and is run as root on
   the bench box before its change is pushed.
-- One `statusbar_test` binary; ctest names are `statusbar/<module>/<file>_test`.
+- One `statusbar_test` binary; ctest names are `<root>/<module>/<file>_test`.
   Hardware-dependent behaviour (AF_XDP zero-copy, cbs shaping, PTP lock, Dante/Milan
   interop) is verified on the bench box and recorded in `mediabridge/docs/TESTBED.md`
   / `PROVISIONING.md`, not faked in unit tests.
