@@ -548,13 +548,13 @@ build_pkg() {
     esac
   done
 
-  # Package version = the tree's newest release tag, for the packages that
-  # take it from the command line (avb, atdecc-control, ...). The others carry
-  # the version in their CMakeLists.
+  # Package version = a release tag ON the tree's commit (as container-build.sh),
+  # else the CMakeLists literal, for packages that accept it on the command line
+  # (avb, atdecc-control, ...): the nearest tag names an earlier release.
   upper="$(printf '%s' "$pkg" | tr 'a-z-' 'A-Z_')"
   if grep -q "STATUSBAR_${upper}_VERSION" "$tree/CMakeLists.txt"; then
     local tag
-    tag="${STATUSBAR_PKG_VERSION:-$(git -C "$tree" describe --tags --abbrev=0 \
+    tag="${STATUSBAR_PKG_VERSION:-$(git -C "$tree" describe --tags --exact-match \
           --match '[0-9]*.[0-9]*.[0-9]*' 2>/dev/null || true)}"
     if [ -n "$tag" ]; then
       version_args=("-DSTATUSBAR_${upper}_VERSION=$tag")
