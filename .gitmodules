@@ -6,7 +6,7 @@
 	url = https://codeberg.org/statusbar/crypto.git
 [submodule "audio"]
 	path = audio
-	url = https://codeberg.org/statusbar/audio.git
+	url = https://github.com/PADL/statusbar-audio.git
 [submodule "avb"]
 	path = avb
 	url = https://github.com/PADL/statusbar-avb.git
