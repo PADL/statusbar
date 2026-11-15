@@ -20,6 +20,11 @@ Jeff's code in `core/statusbar/{status,buffer,net}` and `avb/statusbar/{atdecc,a
   (`MILAN_PLAN`, "stage N") in code, comments or commit messages. Cite the standard
   instead: `IEEE 1722.1-2021 Clause 7.4.40`, `Milan v1.2 Section 5.4.2.7`, `RFC 3550`.
 - Never commit swap files, captures or audio (`*.swp`, `*.pcap`; see each `.gitignore`).
+- When a library's behaviour gets in a PADL consumer's way, change the library behind a
+  switch that defaults to the existing behaviour (Jeff's `TimerConfig::lock_memory`).
+  Compensation in the consumer is a bridge until the bump, and is removed then.
+- Work offered to Jeff lands as final-state commits, one concern each: fold fix-ups first;
+  primitives, guards and call-site migrations are separate commits.
 
 ## Layout and naming
 
@@ -54,7 +59,14 @@ Jeff's code in `core/statusbar/{status,buffer,net}` and `avb/statusbar/{atdecc,a
   (`T const&`), `explicit` single-argument constructors, `= default` destructors.
 - Wire formats are packed structs of `ieee::octet_t/doublet_t/quadlet_t/octlet_t` with
   `static_assert` on size and offsets; parsing goes through `buffer` (never hand-shifted
-  bytes or bare `memcpy`: use `span_utils`).
+  bytes or bare `memcpy`: use `span_utils`). Little-endian formats, which `buffer`'s
+  ordered types do not cover, use local `le16/le32/le64` loads over a span whose length
+  is checked first (as audio's BW64 reader does), until `buffer` gains an LE form.
+- Name every wire offset, flag and limit as a constant, with a `static_assert` against the
+  system header where one defines it. Detect kernel features in source (`__has_include`,
+  `#if defined()` for macros, `static_assert` against UAPI values); an enumerator is not a
+  macro, so `defined()` is false for it: check those at configure time. Wire framing stays
+  portable; only the system-call layer is `#if __linux__`.
 - Blocks are short (Jeff's rule): about 4 statements directly inside a `{}` (each `if`/`for`/
   `return` counts, a nested block once); the gate fails changed blocks over 6. Split multi-step
   procedures into named phases; leave tables, codecs, `switch` bodies and many-field resets whole
@@ -73,10 +85,12 @@ Jeff's code in `core/statusbar/{status,buffer,net}` and `avb/statusbar/{atdecc,a
 
 - `#pragma once`, blank line, copyright + SPDX, blank line, a `///` paragraph saying what
   the file is, then includes (`"statusbar/..."` first, then system `<x.h>`, then `<std>`;
-  clang-format regroups them). `///` on every public declaration, one to three lines,
-  stating the contract (units, ownership, when it may be called, what it returns on
+  clang-format regroups them). `///` on every public declaration, one to three lines
+  (longer only as the next rule allows), stating the contract (units, ownership, when it may be called, what it returns on
   failure). Section banners are `//\n// Title - Clause N\n//`.
-- Keep comments to three lines or fewer. The reasoning, the spec exegesis and the
+- Keep comments to three lines or fewer. A `///` contract may run longer when it states
+  errors, threading, lifetime or idempotence ("not for a real-time thread", "must outlive
+  the guard", "safe to call twice"). The reasoning, the spec exegesis and the
   bench observations go to the module doc, `docs/*.md` or the commit body, not the code.
   Cite the clause (`IEEE 1722.1-2021 Clause 6.2.1.5`) rather than paraphrasing it.
 - Each module has `docs/<MODULE>_MODULE.md` with exactly these sections: Overview, Key
@@ -92,7 +106,11 @@ Jeff's code in `core/statusbar/{status,buffer,net}` and `avb/statusbar/{atdecc,a
   `<module>_<thing>` or the type under test; names are snake_case statements of the
   behaviour (`a_refused_rate_change_is_undone`, `late_frames_are_dropped`), never
   `test1`. Tests are self-contained (no ordering, no network, no root); feed state
-  machines crafted frames and fake clocks. Fuzzers for every parser. A test that
+  machines crafted frames and fake clocks. Tests assert the observable effect (kernel or
+  `/proc` state, frames on the wire, a recorder's op log), not only the returned `Status`;
+  recorders behave like the device they stand in for and can inject one-shot failures.
+  Fuzzers for every parser, asserting invariants of what it accepts (views lie inside the
+  input, counts agree), not only that it does not crash. A test that
   needs root (veth + BPF) skips cleanly when unprivileged and is run as root on
   the bench box before its change is pushed.
 - One `statusbar_test` binary; ctest names are `<root>/<module>/<file>_test`.
