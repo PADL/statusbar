@@ -1,30 +1,40 @@
 [submodule "core"]
 	path = core
 	url = https://github.com/PADL/statusbar-core.git
+	branch = padl
 [submodule "crypto"]
 	path = crypto
 	url = https://codeberg.org/statusbar/crypto.git
+	branch = main
 [submodule "audio"]
 	path = audio
 	url = https://github.com/PADL/statusbar-audio.git
+	branch = padl
 [submodule "avb"]
 	path = avb
 	url = https://github.com/PADL/statusbar-avb.git
+	branch = padl
 [submodule "rtkernel"]
 	path = rtkernel
 	url = https://codeberg.org/statusbar/rtkernel.git
+	branch = main
 [submodule "linuxptp4avb"]
 	path = linuxptp4avb
 	url = https://codeberg.org/statusbar/linuxptp4avb.git
+	branch = main
 [submodule "zephyr"]
 	path = zephyr
 	url = https://codeberg.org/statusbar/zephyr.git
+	branch = main
 [submodule "aes67"]
 	path = aes67
 	url = https://github.com/PADL/statusbar-aes67.git
+	branch = main
 [submodule "aes70"]
 	path = aes70
 	url = https://github.com/PADL/statusbar-aes70.git
+	branch = main
 [submodule "mediabridge"]
 	path = mediabridge
 	url = https://github.com/PADL/statusbar-mediabridge.git
+	branch = main
