@@ -93,7 +93,8 @@ run "prepare integration tree" prepare || status=$?
 if [ "$status" -eq 0 ]; then
   if [ "$RUN_AGGREGATE" = 1 ]; then
     run "aggregate cmake build + tests" bash -c \
-      'cmake --preset default && cmake --build --preset default && ctest --preset default' \
+      'cmake --preset default && cmake --build --preset default && ctest --preset default &&
+       { [ "${STATUSBAR_SKIP_FUNCTIONAL_TESTS:-0}" = 1 ] || ctest --preset default-functional; }' \
       || status=$?
   fi
   if [ "$RUN_LOCAL" = 1 ]; then

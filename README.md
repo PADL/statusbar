@@ -141,7 +141,7 @@ compiler up automatically.
 ### Quick build
 
 ```sh
-./local-build.sh            # configure + build + ctest, into ./build
+./local-build.sh            # configure + build + both test runs, into ./build
 BUILD_DIR=build-rel ./local-build.sh -DCMAKE_BUILD_TYPE=Release
 ```
 
@@ -150,8 +150,29 @@ BUILD_DIR=build-rel ./local-build.sh -DCMAKE_BUILD_TYPE=Release
 ```sh
 cmake -G Ninja -B build -S . --toolchain cmake/toolchain-clang.cmake
 cmake --build build
-ctest --test-dir build
+ctest --test-dir build -LE functional   # the unit tests
+ctest --test-dir build -L functional    # the functional tests
 ```
+
+Two kinds of test are kept apart. Unit tests test logic: they open no socket
+and wait for nothing, so they pass or fail the same on any host. Functional
+tests exercise real sockets and a real kernel, and build into
+`statusbar_functional_test`. A build runs both, the unit tests first, and a
+failure in either fails it; that is what `local-build.sh` does, and so CI.
+The functional run has its own switch, for a host that cannot run them:
+
+```sh
+STATUSBAR_SKIP_FUNCTIONAL_TESTS=1 ./local-build.sh   # unit tests only
+```
+
+`./install-hooks.sh` installs a pre-commit hook for formatting and the block
+rule. `./install-hooks.sh --functional` adds the functional tests to it, for
+the repository being committed to, when the staged change touches C++ or
+CMake and that repository has a configured build directory. That step is off
+unless asked for.
+
+Each package's development package also installs them, as
+`statusbar-<pkg>-functional-test`, to be run on a target.
 
 ### Sanitizers and coverage
 
@@ -220,7 +241,8 @@ extension, and **Qt Creator** (recent). From the command line:
 ```sh
 cmake --preset default
 cmake --build --preset default
-ctest --preset default
+ctest --preset default              # the unit tests
+ctest --preset default-functional   # the functional tests
 ```
 
 Without presets, point your IDE's CMake options at the toolchain file directly:

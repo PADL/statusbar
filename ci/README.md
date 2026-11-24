@@ -68,6 +68,7 @@ block or export overrides:
 | `UMBRELLA_BRANCH` | `main` | integration base branch |
 | `INTEGRATE_MODE` | `pinned` | `pinned` = other submodules at the umbrella's recorded commits; `mains` = at each submodule's `origin/main` |
 | `RUN_AGGREGATE` / `RUN_LOCAL` / `RUN_CONTAINER` | `1` | toggle each build step |
+| `STATUSBAR_SKIP_FUNCTIONAL_TESTS` | `0` | `1` leaves the functional test run out of the aggregate and local builds |
 | `CI_PATH` | `/usr/local/bin:/usr/bin:/bin` | PATH for the build (clang/cmake/ninja/ccache/podman) |
 | `NOTIFY` | _(unset)_ | command run on failure; a summary is piped to its stdin (e.g. `mail -s 'CI fail' you@…`) |
 

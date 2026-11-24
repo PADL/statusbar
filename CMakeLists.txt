@@ -30,6 +30,12 @@ define_property(
 set_property(GLOBAL PROPERTY STATUSBAR_TEST_FILES "")
 define_property(
   GLOBAL
+  PROPERTY STATUSBAR_FUNCTIONAL_TEST_FILES
+  BRIEF_DOCS "functional test sources"
+  FULL_DOCS "accumulated functional test sources")
+set_property(GLOBAL PROPERTY STATUSBAR_FUNCTIONAL_TEST_FILES "")
+define_property(
+  GLOBAL
   PROPERTY STATUSBAR_INSTALL_TARGETS
   BRIEF_DOCS "install targets"
   FULL_DOCS "accumulated install targets")
@@ -176,6 +182,38 @@ if(STATUSBAR_TEST_FILES AND NOT ENABLE_NO_EXCEPTIONS)
     PROPERTIES FAIL_REGULAR_EXPRESSION "FAIL: " PASS_REGULAR_EXPRESSION
                "All tests finished\\.")
   statusbar_register_coverage_targets(statusbar_test)
+endif()
+
+# The functional tests of every package (a module's FUNCTIONAL_TESTS), in one
+# aggregate binary of their own. It is built with everything else, so the
+# functional tests always compile; each is a ctest entry labelled "functional".
+# A build runs them as a second test run of their own, after the unit tests
+# (local-build.sh; the <name>-functional test presets), and
+# STATUSBAR_SKIP_FUNCTIONAL_TESTS=1 turns that run off without touching the unit
+# tests. Names are derived as for the unit tests above.
+get_property(STATUSBAR_FUNCTIONAL_TEST_FILES_ABS GLOBAL
+             PROPERTY STATUSBAR_FUNCTIONAL_TEST_FILES)
+set(STATUSBAR_FUNCTIONAL_TEST_FILES "")
+foreach(TEST_FILE_ABS ${STATUSBAR_FUNCTIONAL_TEST_FILES_ABS})
+  file(RELATIVE_PATH TEST_FILE_REL "${PROJECT_SOURCE_DIR}" "${TEST_FILE_ABS}")
+  string(REGEX REPLACE "^[^/]+/(.*)" "\\1" TEST_FILE_REL "${TEST_FILE_REL}")
+  list(APPEND STATUSBAR_FUNCTIONAL_TEST_FILES "${TEST_FILE_REL}")
+endforeach()
+list(SORT STATUSBAR_FUNCTIONAL_TEST_FILES)
+if(STATUSBAR_FUNCTIONAL_TEST_FILES AND NOT ENABLE_NO_EXCEPTIONS)
+  create_test_sourcelist(
+    STATUSBAR_FUNCTIONAL_TEST_SOURCES statusbar_functional_test.cpp
+    ${STATUSBAR_FUNCTIONAL_TEST_FILES})
+  add_executable(
+    statusbar_functional_test
+    ${CMAKE_CURRENT_BINARY_DIR}/statusbar_functional_test.cpp
+    ${STATUSBAR_FUNCTIONAL_TEST_FILES_ABS})
+  target_link_libraries(statusbar_functional_test PRIVATE statusbar)
+  foreach(TEST_FILE ${STATUSBAR_FUNCTIONAL_TEST_FILES})
+    string(REPLACE ".cpp" "" TEST_NAME "${TEST_FILE}")
+    add_test(NAME ${TEST_NAME} COMMAND statusbar_functional_test ${TEST_NAME})
+    set_tests_properties(${TEST_NAME} PROPERTIES LABELS functional)
+  endforeach()
 endif()
 
 # Auto-discovering fuzz-smoke / fuzz-all targets (no-op unless ENABLE_FUZZING).

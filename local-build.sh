@@ -50,6 +50,18 @@ cmake -G Ninja -B "$BUILD_DIR" -S . \
   --toolchain "cmake/toolchain-$STATUSBAR_TOOLCHAIN${TARGET_ARCH:+-aarch64}.cmake" "$@"
 cmake --build "$BUILD_DIR"
 if [ -z "$TARGET_ARCH" ]; then
-  # A hung test fails instead of blocking the run (none of the suites takes a minute).
-  ctest --test-dir "$BUILD_DIR" --timeout 300
+  # Everything is built, then two test runs, kept apart. The unit tests first:
+  # they test logic, open no socket and wait for nothing, so a loaded build host
+  # cannot fail them. A hung test fails instead of blocking the run (none of the
+  # suites takes a minute).
+  ctest --test-dir "$BUILD_DIR" --timeout 300 -LE functional
+  # Then the functional tests (real sockets, a real kernel). They count the same:
+  # one that fails fails the build. STATUSBAR_SKIP_FUNCTIONAL_TESTS=1 leaves them
+  # out, for a host that cannot run them; the unit tests above still run.
+  if [ "${STATUSBAR_SKIP_FUNCTIONAL_TESTS:-0}" = "1" ]; then
+    set +x
+    echo "local-build: STATUSBAR_SKIP_FUNCTIONAL_TESTS=1, the functional tests are not run" >&2
+  else
+    ctest --test-dir "$BUILD_DIR" --timeout 300 -L functional
+  fi
 fi
